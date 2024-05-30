@@ -8,7 +8,7 @@
 #include <cerrno>
 #include <cstring>
 #include <dirent.h>
-
+#include <ctime>
 
 #include <FI_injector.h>
 
@@ -17,16 +17,44 @@ FI_injector::FI_injector()
     
 }
 
-FI_injector::FI_injector(char *processPath, char *processName, int threadID)
+FI_injector::FI_injector(char *processLocation)
 {
-    m_processPath = processPath;
-    m_processName = processName;
-    m_threadID = threadID;
+    m_processLocation = processLocation;
+    //m_threadID = -1;                // Will be used for random injection
+    m_threadID = 4;                // Will be used for random injection
 }
+
+FI_injector::FI_injector(char *processLocation, int threadID, FI_injector::intel_registers reg)
+{
+    m_processLocation = processLocation;
+    m_threadID = threadID;
+    m_register = reg;
+}
+
 
 FI_injector::~FI_injector()
 {
     
+}
+
+bool FI_injector::run_injection()
+{
+    bool result;
+    
+    // Start the process and wait for it to start up
+    start_process();
+    usleep(100000); // 1/10th of a second
+
+    // Attach to thread (9 in this case)
+    attach_to_thread();
+
+    // Perform injection
+    result = inject_fault(get_random_register());
+
+    // Kill parent process
+    kill(m_process, SIGKILL);
+
+    return result;
 }
 
 // Starts a process specified 
@@ -36,7 +64,7 @@ pid_t FI_injector::start_process()
     int status;
     if (pid == 0) {
         // Child process
-        execl(m_processPath, m_processPath, (char *)NULL); // Correctly pass m_process twice
+        execl(m_processLocation, m_processLocation, (char *)NULL); // Correctly pass m_process twice
         perror("execl");
         exit(1);
     } else if (pid > 0) {
@@ -50,7 +78,7 @@ pid_t FI_injector::start_process()
     }
 }
 
-pid_t FI_injector::get_thread_id()
+pid_t FI_injector::attach_to_thread()
 {
     char path[256];
     snprintf(path, sizeof(path), "/proc/%d/task", m_process);
@@ -106,9 +134,14 @@ char* FI_injector::get_register(FI_injector::intel_registers reg)
     }
 }
 
-bool FI_injector::inject_fault(FI_injector::intel_registers reg)
+bool FI_injector::inject_fault(intel_registers reg)
 {
-    //m_thread = get_thread_id();
+    bool result;
+
+    // Pick a random register
+    if (reg == intel_registers::RANDOM) {
+        reg = get_random_register();
+    }
 
     // Attach to the process
     if (ptrace(PTRACE_ATTACH, m_thread, nullptr, nullptr) == -1) {
@@ -135,6 +168,38 @@ bool FI_injector::inject_fault(FI_injector::intel_registers reg)
     }
 
     // Perform the bit flip on the specified register
+    flip_bit(reg, regs);
+
+    // Write the modified registers back to the process
+    if (ptrace(PTRACE_SETREGS, m_thread, nullptr, &regs) == -1) {
+        std::cerr << "Failed to set registers: " << strerror(errno) << std::endl;
+        ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
+        return false;
+    }
+
+    // Detach from the process
+    if (ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr) == -1) {
+        std::cerr << "Failed to detach from process: " << strerror(errno) << std::endl;
+        return false;
+    }
+
+    // Wait for the process to continue and check if it crashes
+    sleep(1); // Give it some time to potentially crash
+
+    if (kill(m_thread, 0) == -1 && errno == ESRCH) {
+        // Process does not exist anymore, it must have crashed
+        //printf("- process crashed -\n");
+        result = true;
+    } else {
+        // Process is still running
+        result = false;
+    }
+
+    return result;
+}
+
+void FI_injector::flip_bit(FI_injector::intel_registers reg, struct user_regs_struct &regs)
+{
     switch (reg) {
         case RAX: regs.rax ^= 0x1; break;
         case RBX: regs.rbx ^= 0x1; break;
@@ -155,32 +220,21 @@ bool FI_injector::inject_fault(FI_injector::intel_registers reg)
         default: 
             std::cerr << "Invalid register." << std::endl;
             ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
-            return false;
     }
 
-    // Write the modified registers back to the process
-    if (ptrace(PTRACE_SETREGS, m_thread, nullptr, &regs) == -1) {
-        std::cerr << "Failed to set registers: " << strerror(errno) << std::endl;
-        ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
-        return false;
-    }
+    printf("bitflip in register: %s\n", get_register(reg));
+}
 
-    // Detach from the process
-    if (ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr) == -1) {
-        std::cerr << "Failed to detach from process: " << strerror(errno) << std::endl;
-        return false;
-    }
+FI_injector::intel_registers FI_injector::get_random_register()
+{
+    // Seed the random number generator
+    std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    
+    // Generate a random number in the range of enum values excluding RANDOM
+    int randomValue = std::rand() % RANDOM;
 
-    // Wait for the process to continue and check if it crashes
-    sleep(1); // Give it some time to potentially crash
-
-    if (kill(m_thread, 0) == -1 && errno == ESRCH) {
-        // Process does not exist anymore, it must have crashed        
-        return true;
-    } else {
-        // Process is still running
-        return false;
-    }
+    // Return the corresponding enum value
+    return static_cast<intel_registers>(randomValue);    
 }
 
 void FI_injector::list_threads(pid_t pid) {
