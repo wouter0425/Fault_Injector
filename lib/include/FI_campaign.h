@@ -10,6 +10,8 @@ class FI_campaign {
         char *m_process;
         int m_iterations;
         vector<bool> m_results;
+        int m_failCounter;
+        int m_successCounter;
 
     public:
         FI_campaign();

@@ -31,6 +31,9 @@ class FI_injector
         FI_injector::intel_registers m_register;
         pid_t m_process;
         pid_t m_thread;
+        int m_processTime;
+        int m_threadSize;
+        int not_a_nice_way;
         
     public:
 
@@ -44,6 +47,8 @@ class FI_injector
 
         bool run_injection();
         pid_t start_process();
+        int time_process(int iterations);
+        int get_thread_size();
         pid_t attach_to_thread();
         char* get_register(FI_injector::intel_registers reg);
         bool inject_fault(intel_registers reg = intel_registers::RANDOM);

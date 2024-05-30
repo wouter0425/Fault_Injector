@@ -16,7 +16,7 @@ int main()
     //     injector.run_injection();
     // }
 
-    FI_campaign campaign("/home/wouter/Documents/main", 10);
+    FI_campaign campaign("/home/wouter/Documents/main", 50);
 
     campaign.run_campaign();
 
