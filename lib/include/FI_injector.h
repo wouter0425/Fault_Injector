@@ -1,7 +1,14 @@
 #ifndef FI_INJECTOR_H
 #define FI_INJECTOR_H
 
+// startup delay in micro seconds
+#define STARTUP_DELAY   100000
+
 #include <sys/types.h>
+#include <vector>
+#include <FI_result.h>
+
+using namespace std;
 
 class FI_injector
 {
@@ -33,7 +40,8 @@ class FI_injector
         pid_t m_thread;
         int m_processTime;
         int m_threadSize;
-        int not_a_nice_way;
+        int m_injectionTime;
+        vector<FI_result> m_results;        
         
     public:
 
@@ -45,18 +53,19 @@ class FI_injector
 
         //virtual bool run();
 
-        bool run_injection();
+        FI_result run_injection();
         pid_t start_process();
         int time_process(int iterations);
-        int get_thread_size();
+        int count_threads();
         pid_t attach_to_thread();
         char* get_register(FI_injector::intel_registers reg);
-        bool inject_fault(intel_registers reg = intel_registers::RANDOM);
+        int inject_fault(intel_registers reg = intel_registers::RANDOM);
         pid_t get_pid_by_name(const char* process_name);
         void list_threads(pid_t pid);
         FI_injector::intel_registers get_random_register();
         int get_random_thread();
         void flip_bit(FI_injector::intel_registers reg, struct user_regs_struct &regs);
+        char* get_process_name();
 };
 
 #endif

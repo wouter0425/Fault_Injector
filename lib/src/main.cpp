@@ -6,24 +6,11 @@
 
 int main()
 {
-    //FI_injector injector;
-    // FI_injector injector("/home/wouter/Documents/main","main", 9);
-    // int iterations = 10;
-    // for(int i = 0; i <= iterations; i++)
-    // {
-    //     printf("run %d / %d. \n", i, iterations);
+    FI_campaign campaign_1("/home/wouter/Development/Fault_Injector/FI_targets/main_ORG", 10);
+    campaign_1.run_campaign();
+    campaign_1.write_results_to_file();
 
-    //     injector.run_injection();
-    // }
-
-    FI_campaign campaign("/home/wouter/Documents/main", 50);
-
-    campaign.run_campaign();
-
-    campaign.print_campaign();
-    
-
-
-    //injector.get_thread_id();
-    //injector.inject_fault(FI_injector::RAX);
+    FI_campaign campaign_2("/home/wouter/Development/Fault_Injector/FI_targets/main_NMR", 10);
+    campaign_2.run_campaign();
+    campaign_2.write_results_to_file();
 }

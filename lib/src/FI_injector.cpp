@@ -11,8 +11,10 @@
 #include <ctime>
 #include <chrono>
 #include <fstream>
-
+#include <sstream>
+#include <unistd.h>
 #include <FI_injector.h>
+#include <FI_result.h>
 
 FI_injector::FI_injector()
 {
@@ -22,8 +24,8 @@ FI_injector::FI_injector()
 FI_injector::FI_injector(char *processLocation)
 {
     m_processLocation = processLocation;
-    //m_threadID = -1;                // Will be used for random injection
-    m_threadSize = 9;                // Will be used for random injection
+    m_threadID = -1;                // Will be used for random injection
+    //m_threadSize = 9;                // Will be used for random injection
 }
 
 FI_injector::FI_injector(char *processLocation, int threadID, FI_injector::intel_registers reg)
@@ -39,34 +41,39 @@ FI_injector::~FI_injector()
     
 }
 
-bool FI_injector::run_injection()
-{
-    bool result;
+FI_result FI_injector::run_injection()
+{    
+    int retVal;
 
     // Wait a random number of microseconds
-    std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    //std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    std::srand(time(0));
     
     // Start the process and wait for it to start up
     start_process();
-    usleep(10000); // 1/100th of a second
+    usleep(STARTUP_DELAY); // 1/10th of a second
     
-    m_threadID = std::rand() % m_threadSize;
+    m_threadID = std::rand() % count_threads();
 
     // Attach to thread (9 in this case)
     attach_to_thread();
     
     // Generate a random number in the range of 0 to average process time
-    int randomDelay = std::rand() % m_processTime;
+    m_injectionTime = std::rand() % (m_processTime - STARTUP_DELAY);
 
-    not_a_nice_way = randomDelay;
+    // Wait before injecting
+    usleep(m_injectionTime);
 
-    usleep(randomDelay);
+    FI_injector::intel_registers reg = get_random_register();
 
     // Perform injection
-    result = inject_fault(get_random_register());
+    retVal = inject_fault(reg);
 
     // Kill parent process
     kill(m_process, SIGKILL);
+
+    // Create the result value
+    FI_result result(bool(retVal), retVal, m_injectionTime, m_threadID, get_register(reg));
 
     return result;
 }
@@ -75,7 +82,6 @@ bool FI_injector::run_injection()
 pid_t FI_injector::start_process()
 {
     pid_t pid = fork();
-    int status;
     if (pid == 0) {
         // Child process
         execl(m_processLocation, m_processLocation, (char *)NULL); // Correctly pass m_process twice
@@ -150,31 +156,34 @@ int FI_injector::time_process(int iterations) {
     return m_processTime; // Return the average time in microseconds
 }
 
-int FI_injector::get_thread_size()
+int FI_injector::count_threads() 
 {
+    int num_of_threads = 0;
+    
     char path[256];
-    snprintf(path, sizeof(path), "/proc/%d/status", m_processLocation);
-    std::ifstream status_file(path);
-    if (!status_file.is_open()) {
-        perror("ifstream");
-        m_threadSize = -1;
+    snprintf(path, sizeof(path), "/proc/%d/task", m_process);
+
+    DIR *dir = opendir(path);
+    if (dir == NULL) {
+        perror("opendir");
+        exit(EXIT_FAILURE);
     }
 
-    std::string line;
-    while (std::getline(status_file, line)) {
-        if (line.find("Threads:") == 0) {
-            int num_threads = std::stoi(line.substr(8));
-            status_file.close();
-            m_threadSize = num_threads;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_DIR) {
+            // Check if the directory name is a number
+            char *endptr;
+            long tid = strtol(entry->d_name, &endptr, 10);
+            if (*endptr == '\0') {
+                num_of_threads++;
+            }
         }
     }
 
-    status_file.close();
-    std::cerr << "Failed to find the number of threads in the status file" << std::endl;
-    m_threadSize = -1;
+    closedir(dir);
 
-    printf("number of threads: %d \n", m_threadSize);
-    return m_threadSize;
+    return num_of_threads;
 }
 
 char* FI_injector::get_register(FI_injector::intel_registers reg)
@@ -200,9 +209,9 @@ char* FI_injector::get_register(FI_injector::intel_registers reg)
     }
 }
 
-bool FI_injector::inject_fault(intel_registers reg)
+int FI_injector::inject_fault(intel_registers reg)
 {
-    bool result;
+    int result;
 
     // Pick a random register
     if (reg == intel_registers::RANDOM) {
@@ -249,16 +258,22 @@ bool FI_injector::inject_fault(intel_registers reg)
         return false;
     }
 
-    // Wait for the process to continue and check if it crashes
-    sleep(1); // Give it some time to potentially crash
+    //waitpid(m_thread, &status, 0);
+    waitpid(m_process, &status, 0);
 
-    if (kill(m_thread, 0) == -1 && errno == ESRCH) {
-        // Process does not exist anymore, it must have crashed
-        //printf("- process crashed -\n");
-        result = true;
-    } else {
-        // Process is still running
-        result = false;
+    if (WIFEXITED(status)) {
+        if (WEXITSTATUS(status) == 0) {
+            result = 0; // Process exited normally
+        } 
+        else if (WEXITSTATUS(status) == 1) {
+            result = 1; // Process crashed (non-zero exit status)
+        }
+        else if (WEXITSTATUS(status) == 2) {
+            result = 2; // Process crashed (non-zero exit status)
+        }
+        else {
+            result = -1;
+        }
     }
 
     return result;
@@ -286,9 +301,8 @@ void FI_injector::flip_bit(FI_injector::intel_registers reg, struct user_regs_st
         default: 
             std::cerr << "Invalid register." << std::endl;
             ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
+            return;
     }
-
-    printf("bitflip in thread %d \t register: %s \t after: %d microseconds\n", m_threadID, get_register(reg), not_a_nice_way);
 }
 
 FI_injector::intel_registers FI_injector::get_random_register()
@@ -327,4 +341,33 @@ void FI_injector::list_threads(pid_t pid) {
     }
 
     closedir(dir);
+}
+
+char *FI_injector::get_process_name()
+{
+    pid_t pid = start_process();
+
+    // Construct the path to the comm file
+    std::ostringstream commPath;
+    commPath << "/proc/" << pid << "/comm";
+
+    // Open the comm file
+    std::ifstream commFile(commPath.str());
+    if (!commFile) {
+        std::cerr << "Error: Unable to open file for PID " << pid << std::endl;
+        return nullptr;
+    }
+
+    // Read the process name
+    std::string processName;
+    std::getline(commFile, processName);
+
+    // Close the file
+    commFile.close();
+
+    // Allocate a new char array and copy the process name into it
+    char* processNameCStr = new char[processName.size() + 1];
+    std::strcpy(processNameCStr, processName.c_str());
+
+    return processNameCStr;
 }
