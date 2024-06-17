@@ -9,6 +9,11 @@ FI_result::FI_result(bool result, int resultType, int injectionTime, int core, c
     m_register = reg;
 }
 
+FI_result::FI_result()
+{
+
+}
+
 FI_result::~FI_result()
 {
 

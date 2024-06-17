@@ -34,6 +34,7 @@ class FI_injector
 
     private:
         char *m_processLocation;
+        std::string m_name;
         int m_threadID;
         FI_injector::intel_registers m_register;
         pid_t m_process;
@@ -41,8 +42,8 @@ class FI_injector
         int m_processTime;
         int m_threadSize;
         int m_injectionTime;
-        vector<FI_result> m_results;        
-        
+        vector<FI_result> m_results;
+
     public:
 
         FI_injector();
@@ -50,22 +51,25 @@ class FI_injector
         FI_injector(char *processLocation, int threadID, FI_injector::intel_registers reg); // Stuck bit
         ~FI_injector();
 
-
-        //virtual bool run();
-
         FI_result run_injection();
         pid_t start_process();
         int time_process(int iterations);
         int count_threads();
         pid_t attach_to_thread();
         char* get_register(FI_injector::intel_registers reg);
-        int inject_fault(intel_registers reg = intel_registers::RANDOM);
+        //int inject_fault(intel_registers reg = intel_registers::RANDOM);
         pid_t get_pid_by_name(const char* process_name);
         void list_threads(pid_t pid);
-        FI_injector::intel_registers get_random_register();
+        //FI_injector::intel_registers get_random_register();
+        void get_random_register();
+        void inject_fault();
         int get_random_thread();
         void flip_bit(FI_injector::intel_registers reg, struct user_regs_struct &regs);
         char* get_process_name();
+        bool get_random_child_pid();
+        bool is_process_running();
+        //void get_random_child_pid();
+
 };
 
 #endif
