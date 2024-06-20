@@ -6,6 +6,8 @@
 
 #include <sys/types.h>
 #include <vector>
+#include <chrono>
+#include <FI_defines.h>
 #include <FI_result.h>
 
 using namespace std;
@@ -38,11 +40,15 @@ class FI_injector
         int m_threadID;
         FI_injector::intel_registers m_register;
         pid_t m_process;
+        int m_core {0}; // First run is never an error
         pid_t m_thread;
         int m_processTime;
         int m_threadSize;
         int m_injectionTime;
+        int m_burstTime;
         vector<FI_result> m_results;
+        int m_cores[NUM_OF_TARGETS] = TARGET_CORES;
+        //vector<int> m_cores;
 
     public:
 
@@ -68,6 +74,13 @@ class FI_injector
         char* get_process_name();
         bool get_random_child_pid();
         bool is_process_running();
+        int get_core_of_child_process(pid_t child_pid);
+        bool burst_active(const std::chrono::steady_clock::time_point& start_time);
+        bool contains(int target);
+
+        std::vector<int> get_active_cores();
+        void add_result(time_t t);
+        void write_results_to_file();
         //void get_random_child_pid();
 
 };
