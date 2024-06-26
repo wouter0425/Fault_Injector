@@ -31,11 +31,6 @@ FI_injector::FI_injector(char *processLocation)
     m_processLocation = processLocation;
     m_threadID = -1;                // Will be used for random injection
     m_burstTime = 100;
-
-    for (int i = 0; i < NUM_OF_TARGETS; i++)
-    {
-        printf("core: %d \n", m_cores[i]);
-    }
 }
 
 FI_injector::~FI_injector()
@@ -77,41 +72,42 @@ bool FI_injector::is_process_running() {
     }
 }
 
-char* FI_injector::get_register(FI_injector::intel_registers reg)
-{
-    switch(reg) {
-        case RAX: return "rax";
-        case RBX: return "rbx";
-        case RCX: return "rcx";
-        case RDX: return "rdx";
-        case RSI: return "rsi";
-        case RDI: return "rdi";
-        case RSP: return "rsp";
-        case RBP: return "rbp";
-        case R8: return "r8";
-        case R9: return "r9";
-        case R10: return "r10";
-        case R11: return "r11";
-        case R12: return "r12";
-        case R13: return "r13";
-        case R14: return "r14";
-        case R15: return "r15";
-        default: return "unknown";
-    }
-}
+// char* FI_injector::get_register(FI_injector::intel_registers reg)
+// {
+//     switch(reg) {
+//         case RAX: return "rax";
+//         case RBX: return "rbx";
+//         case RCX: return "rcx";
+//         case RDX: return "rdx";
+//         case RSI: return "rsi";
+//         case RDI: return "rdi";
+//         case RSP: return "rsp";
+//         case RBP: return "rbp";
+//         case R8: return "r8";
+//         case R9: return "r9";
+//         case R10: return "r10";
+//         case R11: return "r11";
+//         case R12: return "r12";
+//         case R13: return "r13";
+//         case R14: return "r14";
+//         case R15: return "r15";
+//         default: return "unknown";
+//     }
+// }
 
 void FI_injector::inject_fault()
 {
     // Read the registers
     struct user_regs_struct regs;
     if (ptrace(PTRACE_GETREGS, m_thread, nullptr, &regs) == -1) {
-        //fprintf(stderr, "Failed to get registers: %s\n", strerror(errno));
         ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
         return;
     }
 
     // Perform the bit flip on the specified register
+#ifndef GOLDEN_RUN
     flip_bit(m_register, regs);
+#endif
 
     //printf("Injected in: %s \t pid: %d \t register: %s\n", m_name.c_str(), m_thread, get_register(m_register));
 
@@ -161,6 +157,11 @@ void FI_injector::flip_bit(FI_injector::intel_registers reg, struct user_regs_st
     }
 }
 
+void FI_injector::get_random_core()
+{
+    m_core = (std::rand() % NUM_OF_CORES) + 1;
+}
+
 void FI_injector::get_random_register()
 {
     int randomValue = std::rand() % RANDOM;
@@ -185,15 +186,7 @@ bool FI_injector::get_random_child_pid()
     std::vector<pid_t> child_pids;
     pid_t pid;
     while (children_file >> pid) {
-        int c = get_core_of_child_process(pid);
-        if (RANDOM_CORE) {
-            child_pids.push_back(pid);
-        }
-        else if (contains(c)) {
-            child_pids.push_back(pid);
-        }
-
-        m_core = c;
+        child_pids.push_back(pid);
     }
     children_file.close();
 
@@ -208,20 +201,15 @@ bool FI_injector::get_random_child_pid()
     std::uniform_int_distribution<> distrib(0, child_pids.size() - 1);
 
     pid_t random_child_pid = child_pids[distrib(gen)];
+
+    if (m_core != get_core_of_child_process(random_child_pid)) {
+        return false;
+    }
+
     m_thread = random_child_pid;
 
     // Construct the path to the comm file
     snprintf(path, sizeof(path), "/proc/%d/comm", m_thread);
-
-    // Open the comm file to get the process name
-    // std::ifstream comm_file(path);
-    // if (comm_file) {
-    //     std::getline(comm_file, m_name);
-    //     comm_file.close();
-    // } else {
-    //     perror("Failed to open comm file");
-    //     return false;
-    // }
 
     // Attach to the process
     if (ptrace(PTRACE_ATTACH, m_thread, nullptr, nullptr) == -1) {

@@ -48,7 +48,6 @@ class FI_injector
         int m_burstTime;
         vector<FI_result> m_results;
         int m_cores[NUM_OF_TARGETS] = TARGET_CORES;
-        //vector<int> m_cores;
 
     public:
 
@@ -62,11 +61,9 @@ class FI_injector
         int time_process(int iterations);
         int count_threads();
         pid_t attach_to_thread();
-        char* get_register(FI_injector::intel_registers reg);
-        //int inject_fault(intel_registers reg = intel_registers::RANDOM);
+        //char* get_register(FI_injector::intel_registers reg);
         pid_t get_pid_by_name(const char* process_name);
         void list_threads(pid_t pid);
-        //FI_injector::intel_registers get_random_register();
         void get_random_register();
         void inject_fault();
         int get_random_thread();
@@ -77,11 +74,11 @@ class FI_injector
         int get_core_of_child_process(pid_t child_pid);
         bool burst_active(const std::chrono::steady_clock::time_point& start_time);
         bool contains(int target);
+        void get_random_core();
 
         std::vector<int> get_active_cores();
         void add_result(time_t t);
         void write_results_to_file();
-        //void get_random_child_pid();
 
 };
 
