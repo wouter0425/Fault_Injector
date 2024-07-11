@@ -7,79 +7,84 @@
 #include <sys/types.h>
 #include <vector>
 #include <chrono>
+#include <string>
 #include <FI_defines.h>
 #include <FI_result.h>
 
 using namespace std;
 
+long current_time_in_ms();
+string generateOutputString(const string& prefix);
+
+using namespace std;
+
+
+
 class FI_injector
 {
-    enum intel_registers {
-        RAX,
-        RBX,
-        RCX,
-        RDX,
-        RSI,
-        RDI,
-        RSP,
-        RBP,
-        R8,
-        R9,
-        R10,
-        R11,
-        R12,
-        R13,
-        R14,
-        R15,
-        RANDOM
-    };
-
     private:
-        char *m_processLocation;
-        std::string m_name;
-        int m_threadID;
-        FI_injector::intel_registers m_register;
+        char *m_targetLocation;
+        string m_name;
+        intel_registers m_register;        
+        int m_core {0}; // First run is never an error        
+        pid_t m_target;
+        string m_targetName;
         pid_t m_process;
-        int m_core {0}; // First run is never an error
-        pid_t m_thread;
-        int m_processTime;
-        int m_threadSize;
-        int m_injectionTime;
         int m_burstTime;
-        vector<FI_result> m_results;
-        int m_cores[NUM_OF_TARGETS] = TARGET_CORES;
+        int m_burstFrequency;
+        int m_startupDelay;
+        long m_startTime;        
+        vector<target> m_targets;
+        vector<int> m_targetResults;
+        vector<FI_result*> m_results;
+        
+        int m_cores[NUM_OF_CORES] = TARGET_CORES;
 
     public:
 
         FI_injector();
-        FI_injector(char *processLocation); // SEU
-        FI_injector(char *processLocation, int threadID, FI_injector::intel_registers reg); // Stuck bit
+        FI_injector(char *processLocation, int startupDelay, int burstTime, int burstFrequency);        
         ~FI_injector();
 
-        FI_result run_injection();
+        long get_start_time() { return m_startTime; }
+        void run_injection();
+
+        void add_target(string name) { m_targets.push_back({name, 0}); }
+        void set_target_location(char *targetLocation) { m_targetLocation = targetLocation; }
+        void set_burst_time(int burstTime) { m_burstTime = burstTime; }
+        void set_burst_frequency(int burstFrequency) { m_burstFrequency = burstFrequency; }
+        void set_startup_delay(int startupDelay) { m_startupDelay = startupDelay * MILISECOND; }
+
         pid_t start_process();
         int time_process(int iterations);
-        int count_threads();
-        pid_t attach_to_thread();
-        //char* get_register(FI_injector::intel_registers reg);
-        pid_t get_pid_by_name(const char* process_name);
-        void list_threads(pid_t pid);
+        
         void get_random_register();
         void inject_fault();
-        int get_random_thread();
-        void flip_bit(FI_injector::intel_registers reg, struct user_regs_struct &regs);
-        char* get_process_name();
+        
+        void flip_bit(intel_registers reg, struct user_regs_struct &regs);
         bool get_random_child_pid();
         bool is_process_running();
-        int get_core_of_child_process(pid_t child_pid);
+        int get_core_of_child_process();
         bool burst_active(const std::chrono::steady_clock::time_point& start_time);
-        bool contains(int target);
         void get_random_core();
+        void print_results();
 
-        std::vector<int> get_active_cores();
-        void add_result(time_t t);
-        void write_results_to_file();
+        vector<pid_t> get_child_PIDs();
+        int get_core_of_process(pid_t process);
+        bool get_target_process();
 
+
+
+        
+        void add_result(long time);
+        void write_results_to_file();        
+
+        vector<FI_result*>& getResults() { return m_results; }
+        void setResults(const vector<FI_result*>& results) { m_results = results; }
+
+
+        bool get_random_PID(char* path);
+        bool get_process_name();
 };
 
 #endif

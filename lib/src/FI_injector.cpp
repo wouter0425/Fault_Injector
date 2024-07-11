@@ -16,8 +16,11 @@
 #include <fstream>
 #include <sstream>
 #include <unistd.h>
+#include <iomanip>
 #include <sstream>
+
 #include <FI_injector.h>
+#include <FI_result.h>
 #include <FI_result.h>
 #include <FI_defines.h>
 
@@ -26,15 +29,60 @@ FI_injector::FI_injector()
 
 }
 
-FI_injector::FI_injector(char *processLocation)
+FI_injector::FI_injector(char *targetLocation, int startupDelay, int burstTime, int burstFrequency)
 {
-    m_processLocation = processLocation;
-    m_threadID = -1;                // Will be used for random injection
-    m_burstTime = 100;
+    m_targetLocation = targetLocation;    
+    m_startupDelay = startupDelay * 1000;
+    m_burstTime = burstTime;
+    m_burstFrequency = burstFrequency;
 }
 
 FI_injector::~FI_injector()
 {
+
+}
+
+void FI_injector::run_injection()
+{   
+    // Seed the random number generator
+    std::srand(std::time(nullptr));
+
+    // Start the target process
+    start_process();
+
+    usleep(m_startupDelay);
+
+    // Record the start time before entering the outer while loop        
+    long temp_time = 0;
+
+    while (is_process_running()) {
+        // Set the maximum amount of time for the inner while loop to run
+        auto burst_start_time = std::chrono::steady_clock::now();
+
+        get_random_core();
+
+        while (burst_active(burst_start_time)) {
+            // Get a random intel register
+            // get_random_register();
+
+            // Get a random process
+            // if (get_random_child_pid()) 
+            if (get_target_process())
+            {
+                inject_fault();
+                
+                // Log the active cores and pass the elapsed time
+                long time = current_time_in_ms() - get_start_time();
+                if (time - temp_time > 10) {
+                    add_result(time);
+                    temp_time = time;
+                }
+
+                usleep(1000);
+            }            
+        }
+        usleep(m_burstFrequency);
+    }
 
 }
 
@@ -44,12 +92,13 @@ pid_t FI_injector::start_process()
     pid_t pid = fork();
     if (pid == 0) {
         // Child process
-        execl(m_processLocation, m_processLocation, (char *)NULL); // Correctly pass m_process twice
+        execl(m_targetLocation, m_targetLocation, (char *)NULL); // Correctly pass m_process twice
         perror("execl");
         exit(1);
     } else if (pid > 0) {
         // Parent process
-        m_process = pid;
+        m_target = pid;
+        m_startTime = current_time_in_ms();
         return pid;
     } else {
         // Fork failed
@@ -58,80 +107,137 @@ pid_t FI_injector::start_process()
     }
 }
 
-bool FI_injector::is_process_running() {
-    // Use the kill function with signal 0 to check if the process is running
+bool FI_injector::is_process_running() {    
     int status;
-    int result = waitpid(m_process, &status, WNOHANG);
+    int result = waitpid(m_target, &status, WNOHANG);
+
     if (result == 0) {
         return true; // Process exists
-    } else if (result == -1) {
+    }
+    else if (result == -1) {
         perror("waitpid");
         return false; // Error
-    } else {
+    }
+    else {
         return false; // Process does not exist
     }
 }
 
-// char* FI_injector::get_register(FI_injector::intel_registers reg)
-// {
-//     switch(reg) {
-//         case RAX: return "rax";
-//         case RBX: return "rbx";
-//         case RCX: return "rcx";
-//         case RDX: return "rdx";
-//         case RSI: return "rsi";
-//         case RDI: return "rdi";
-//         case RSP: return "rsp";
-//         case RBP: return "rbp";
-//         case R8: return "r8";
-//         case R9: return "r9";
-//         case R10: return "r10";
-//         case R11: return "r11";
-//         case R12: return "r12";
-//         case R13: return "r13";
-//         case R14: return "r14";
-//         case R15: return "r15";
-//         default: return "unknown";
-//     }
-// }
-
 void FI_injector::inject_fault()
 {
+    get_random_register();
+
     // Read the registers
     struct user_regs_struct regs;
-    if (ptrace(PTRACE_GETREGS, m_thread, nullptr, &regs) == -1) {
-        ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
+    if (ptrace(PTRACE_GETREGS, m_process, nullptr, &regs) == -1) {
+        ptrace(PTRACE_DETACH, m_process, nullptr, nullptr);
         return;
     }
 
     // Perform the bit flip on the specified register
 #ifndef GOLDEN_RUN
     flip_bit(m_register, regs);
+    for (auto& t : m_targets) {
+        if (!m_targetName.compare(t.name))
+            t.injections++;
+    }
 #endif
 
-    //printf("Injected in: %s \t pid: %d \t register: %s\n", m_name.c_str(), m_thread, get_register(m_register));
-
     // Write the modified registers back to the process
-    if (ptrace(PTRACE_SETREGS, m_thread, nullptr, &regs) == -1) {
+    if (ptrace(PTRACE_SETREGS, m_process, nullptr, &regs) == -1) {
         fprintf(stderr, "Failed to set registers: %s\n", strerror(errno));
-        ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
+        ptrace(PTRACE_DETACH, m_process, nullptr, nullptr);
         return;
     }
 
     // Detach from the process and allow it to continue
-    if (ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr) == -1) {
+    if (ptrace(PTRACE_DETACH, m_process, nullptr, nullptr) == -1) {
         fprintf(stderr, "Failed to detach from process: %s\n", strerror(errno));
         return;
     }
 
     // Allow the process to continue execution
-    if (ptrace(PTRACE_CONT, m_thread, nullptr, nullptr) == -1) {
+    if (ptrace(PTRACE_CONT, m_process, nullptr, nullptr) == -1) {
         //fprintf(stderr, "Failed to continue process: %s\n", strerror(errno));
         return;
     }
 }
 
-void FI_injector::flip_bit(FI_injector::intel_registers reg, struct user_regs_struct &regs)
+vector<pid_t> FI_injector::get_child_PIDs()
+{
+    //char path[256];
+    vector<pid_t> childPIDs;
+    string path = "/proc/" + to_string(m_target) + "/task/" + to_string(m_target) + "/children";
+    //snprintf(path, sizeof(path), "/proc/%d/task/%d/children", m_target, m_target);
+    ifstream file(path);
+    if (!file.is_open()) {
+        //cerr << "Error: Unable to open " << path << endl;
+        return childPIDs;
+    }
+
+    pid_t childPID;
+    while (file >> childPID) {
+        childPIDs.push_back(childPID);
+    }
+
+    return childPIDs; 
+}
+
+int FI_injector::get_core_of_process(pid_t process)
+{
+    cpu_set_t cpuSet;
+    CPU_ZERO(&cpuSet);
+    if (sched_getaffinity(process, sizeof(cpuSet), &cpuSet) == -1) {
+        //cerr << "Error: sched_getaffinity failed for PID " << process << ": " << strerror(errno) << endl;
+        return -1;
+    }
+
+    for (int i = 0; i < CPU_SETSIZE; ++i) {
+        if (CPU_ISSET(i, &cpuSet)) {            
+            return i;
+        }
+    }
+
+    return -1; // No CPU found
+}
+
+bool FI_injector::get_target_process()
+{
+    int status;
+    vector<pid_t> childPIDs = get_child_PIDs();
+    m_process = 0;
+
+    for (int childPID : childPIDs) {
+        int childCore = get_core_of_process(childPID);
+        if (childCore == m_core) {
+            m_process = childPID;
+            get_process_name();
+            break;
+        }
+    }
+
+    if (!m_process)
+        return false;
+
+        // Attach to the process
+    if (ptrace(PTRACE_ATTACH, m_process, nullptr, nullptr) == -1)
+        return false;
+
+    // Wait for the process to stop    
+    if (waitpid(m_process, &status, 0) == -1) {
+        ptrace(PTRACE_DETACH, m_process, nullptr, nullptr);
+        return false;
+    }
+
+    if (!WIFSTOPPED(status)) {
+        ptrace(PTRACE_DETACH, m_process, nullptr, nullptr);
+        return false;
+    }
+
+    return true;
+}
+
+void FI_injector::flip_bit(intel_registers reg, struct user_regs_struct &regs)
 {
     switch (reg) {
         case RAX: regs.rax ^= 0x1; break;
@@ -152,14 +258,14 @@ void FI_injector::flip_bit(FI_injector::intel_registers reg, struct user_regs_st
         case R15: regs.r15 ^= 0x1; break;
         default:
             std::cerr << "Invalid register." << std::endl;
-            ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
+            ptrace(PTRACE_DETACH, m_process, nullptr, nullptr);
             return;
     }
 }
 
 void FI_injector::get_random_core()
 {
-    m_core = (std::rand() % NUM_OF_CORES) + 1;
+    m_core = std::rand() % NUM_OF_CORES;
 }
 
 void FI_injector::get_random_register()
@@ -171,70 +277,101 @@ void FI_injector::get_random_register()
 
 bool FI_injector::get_random_child_pid()
 {
-     // Construct the path to the children file
     char path[256];
-    snprintf(path, sizeof(path), "/proc/%d/task/%d/children", m_process, m_process);
+    int status;
+    string task_name;
+    // Construct the path to the children file
+    snprintf(path, sizeof(path), "/proc/%d/task/%d/children", m_target, m_target);
 
-    // Open the children file
-    std::ifstream children_file(path);
-    if (!children_file) {
-        perror("Failed to open children file");
+    // Get the pid of a random child
+    if (!get_random_PID(path))
         return false;
-    }
 
-    // Read all child PIDs into a vector
-    std::vector<pid_t> child_pids;
-    pid_t pid;
-    while (children_file >> pid) {
-        child_pids.push_back(pid);
-    }
-    children_file.close();
-
-    // Check if there are any child PIDs
-    if (child_pids.empty()) {
+    if (m_core != get_core_of_child_process())
         return false;
-    }
 
-    // Generate a random index to select a PID from the vector
-    std::random_device rd;  // Seed for the random number engine
-    std::mt19937 gen(rd()); // Mersenne Twister random number engine
-    std::uniform_int_distribution<> distrib(0, child_pids.size() - 1);
-
-    pid_t random_child_pid = child_pids[distrib(gen)];
-
-    if (m_core != get_core_of_child_process(random_child_pid)) {
-        return false;
-    }
-
-    m_thread = random_child_pid;
-
-    // Construct the path to the comm file
-    snprintf(path, sizeof(path), "/proc/%d/comm", m_thread);
+    // Get the name of the target process
+    get_process_name();
 
     // Attach to the process
-    if (ptrace(PTRACE_ATTACH, m_thread, nullptr, nullptr) == -1) {
+    if (ptrace(PTRACE_ATTACH, m_process, nullptr, nullptr) == -1)
         return false;
-    }
 
-    // Wait for the process to stop
-    int status;
-    if (waitpid(m_thread, &status, 0) == -1) {
-        ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
+    // Wait for the process to stop    
+    if (waitpid(m_process, &status, 0) == -1) {
+        ptrace(PTRACE_DETACH, m_process, nullptr, nullptr);
         return false;
     }
 
     if (!WIFSTOPPED(status)) {
-        ptrace(PTRACE_DETACH, m_thread, nullptr, nullptr);
+        ptrace(PTRACE_DETACH, m_process, nullptr, nullptr);
         return false;
     }
 
     return true;
 }
 
-int FI_injector::get_core_of_child_process(pid_t child_pid) {
+bool FI_injector::get_random_PID(char* path)
+{
+    pid_t pid;
+    std::vector<pid_t> child_pids;    
+    int pid_index;
+
+    // Open the children file
+    std::ifstream children_file(path);
+    if (!children_file)
+        return false; 
+
+    // Read all child PIDs into a vector
+    while (children_file >> pid)
+        child_pids.push_back(pid);
+    
+    children_file.close();
+
+    // Check if there are any child PIDs
+    if (child_pids.empty())
+        return false;    
+
+    // Check if there is more than one child PID
+    if (child_pids.size() == 1) {
+        m_process = child_pids[0];
+        return true;
+    }
+
+    // Get a random child PID index
+    pid_index = std::rand() % child_pids.size();
+
+    m_process = child_pids[pid_index];
+
+    return true;
+}
+
+bool FI_injector::get_process_name()
+{
+    char path[256];
+
+    // Construct the path to the comm file
+    snprintf(path, sizeof(path), "/proc/%d/comm", m_process);
+
+    // Open the comm file to read the task name
+    std::ifstream comm_file(path);
+    if (!comm_file)
+        return false;
+
+    // Read the task name
+    string task_name;
+    getline(comm_file, task_name);
+    comm_file.close();
+
+    m_targetName = task_name;
+
+    return true;
+}
+
+int FI_injector::get_core_of_child_process() {
     // Construct the path to the stat file
     char path[256];
-    snprintf(path, sizeof(path), "/proc/%d/stat", child_pid);
+    snprintf(path, sizeof(path), "/proc/%d/stat", m_process);
 
     // Open the stat file
     std::ifstream stat_file(path);
@@ -267,6 +404,7 @@ int FI_injector::get_core_of_child_process(pid_t child_pid) {
     return core;
 }
 
+// Checks the elapsed number of milliseconds
 bool FI_injector::burst_active(const std::chrono::steady_clock::time_point& start_time)
 {
     auto current_time = std::chrono::steady_clock::now();
@@ -274,98 +412,134 @@ bool FI_injector::burst_active(const std::chrono::steady_clock::time_point& star
     return elapsed_time < m_burstTime;
 }
 
-bool FI_injector::contains(int target)
+void FI_injector::add_result(long time)
 {
-    for(int i = 0; i < NUM_OF_TARGETS; i++)
-    {
-        if (m_cores[i] == target)
-        {
-            return true;
-        }
-    }
+    FI_result *r = new FI_result(m_core, time, m_targets , m_targetName);
 
-    return false;
+    m_results.push_back(r);
 }
 
-void FI_injector::add_result(time_t t)
-{
-    // FI_result(std::vector<int> cores, int target, time_t time);
-    FI_result result(get_active_cores(), m_core, t);
-    m_results.push_back(result);
-    // for(const auto& r : m_results)
-    // {
-    //     printf("%ld \n", r.get_time);
-    // }
-}
-
-std::vector<int> FI_injector::get_active_cores()
-{
-     // Construct the path to the children file
-    char path[256];
-    snprintf(path, sizeof(path), "/proc/%d/task/%d/children", m_process, m_process);
-
-    // Open the children file
-    std::ifstream children_file(path);
-    if (!children_file) {
-        perror("Failed to open children file");
-        return {};
-        //return false;
-    }
-
-    // Read all child PIDs into a vector
-    std::vector<int> cores;
-    pid_t pid;
-    while (children_file >> pid)
-    {
-        cores.push_back(get_core_of_child_process(pid));
-    }
-
-    children_file.close();
-
-    return cores;
+long current_time_in_ms() {
+    struct timespec spec;
+    clock_gettime(CLOCK_REALTIME, &spec);
+    return (spec.tv_sec * 1000) + (spec.tv_nsec / 1000000);
 }
 
 void FI_injector::write_results_to_file()
 {
-    std::ofstream file("output.txt", std::ios::out | std::ios::trunc);
-    if (!file) {
-        std::cerr << "Failed to open or create file for writing: " << "output.txt" << std::endl;
+    string injection_results = generateOutputString("FI_results/injection_results/injection");
+    FILE *injection_file = fopen(injection_results.c_str(), "w");
+
+    string target_results = generateOutputString("FI_results/target_results/targets");
+    FILE *target_file = fopen(target_results.c_str(), "w");
+
+    if (!injection_file || !target_file) {
+        perror("Failed to open file");
         return;
     }
 
-    // Write header
-    file << "time\ttarget core";
-    for (int i = 0; i < NUM_OF_CORES; ++i) {
-        file << "\tcore " << i;
+    // Create column names for injection_file
+    fprintf(injection_file, "time\t");
+    fprintf(target_file, "time\t");
+
+    for (int i = 0; i < NUM_OF_CORES; i++)
+    {
+        fprintf(injection_file, "Core %d", m_cores[i]);
+        if (i < NUM_OF_CORES - 1)
+        {
+            fprintf(injection_file, "\t");
+        }
     }
-    file << "\n";
 
-    // std::vector<FI_result> get_results() { return m_results; }
+    fprintf(injection_file, "\n");
 
-    // Write results
-    for (const auto& result : m_results) {
-        int target = result.get_target();
+    // create column names for target_file
+    for (int i = 0; i < m_targets.size(); i++)
+    {
+        fprintf(target_file, "%s", m_targets[i].name.c_str());
 
-        if (!target) {
-            file << result.get_time() << " seconds" << "\t" << "\t";
-        }
-        else {
-            file << result.get_time() << " seconds" << "\t" << result.get_target() << "\t";
-        }
+        if (i < m_targets.size() - 1)
+            fprintf(target_file, "\t");        
+    }
 
+    fprintf(target_file, "\n");
 
-        std::vector<int> core_counters(NUM_OF_CORES, 0);
-        for (int core : result.get_cores()) {
-            if (core >= 0 && core < NUM_OF_CORES) {
-                core_counters[core]++;
+    // Declare the arrays to store the results
+    int injection_sum[NUM_OF_CORES];
+    int target_sum[m_targets.size()];
+
+    // Initialize the array results
+    for (int i = 0; i < NUM_OF_CORES; i++) injection_sum[i] = 0;
+    for (int i = 0; i < m_targets.size(); i++) target_sum[i] = 0; 
+
+    // Process the results
+    for (auto& result: m_results)
+    {
+        fprintf(injection_file, "%ld\t", result->get_time());
+        fprintf(target_file, "%ld\t", result->get_time());
+
+        for (int i = 0; i < NUM_OF_CORES; i++) 
+        {
+            if (result->get_target() == m_cores[i])
+            {
+                injection_sum[i]++;
+                break;
             }
         }
 
-        for (int counter : core_counters) {
-            file << "\t" << counter;
+        for (int i = 0; i < NUM_OF_CORES; i++)
+        {
+            fprintf(injection_file, "%d", injection_sum[i]);
+            if (i < NUM_OF_CORES - 1)            
+                fprintf(injection_file, "\t");
+            
         }
-        file << "\n";
+
+        for (int i = 0; i < m_targets.size(); i++)
+        {
+            if (result->get_targets()[i])
+            {                
+                target_sum[i]++;
+            }
+        }
+
+        for (int i = 0; i < m_targets.size(); i++)
+        {
+            fprintf(target_file, "%d", target_sum[i]);
+            if (i < m_targets.size() - 1)
+                fprintf(target_file, "\t");
+        }
+
+        fprintf(injection_file, "\n");
+        fprintf(target_file, "\n");
     }
 
-    file.close();
+    fclose(injection_file);
+    fclose(target_file);
+}
+
+void FI_injector::print_results()
+{
+    printf("*** Injection results ***\n");
+
+    for (int i = 0; i < m_targets.size(); i++)
+    {
+        printf("%s: \t injections: %d\n", m_targets[i].name.c_str(), m_targets[i].injections);
+    }
+}
+
+string generateOutputString(const string& prefix) {
+    // Get the current time
+    std::time_t now = std::time(nullptr);
+    std::tm timeinfo = *std::localtime(&now);
+
+    // Format the date and time
+    std::ostringstream oss;
+    oss << std::put_time(&timeinfo, "%Y-%m-%d_%H-%M-%S");
+    string suffix = oss.str();
+
+    // Construct the output string
+    string output = prefix + "_" + suffix + ".txt";
+
+    return output;
 }

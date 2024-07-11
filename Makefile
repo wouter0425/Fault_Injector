@@ -6,6 +6,12 @@ INCDIR = lib/include
 SRCDIR = lib/src
 OBJDIR = obj
 BINDIR = bin
+INJECTION_RES_DIR = FI_results/injection_results
+TARGET_RES_DIR = FI_results/target_results
+CORE_RES_DIR = results/cores
+TASK_RES_DIR = results/tasks
+WEIGHT_RES_DIR = results/weights
+DIRS_TO_CLEAN = $(INJECTION_RES_DIR) $(TARGET_RES_DIR) $(CORE_RES_DIR) $(TASK_RES_DIR) $(WEIGHT_RES_DIR)
 
 # Define the executable name
 EXEC = $(BINDIR)/injector
@@ -43,5 +49,12 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cpp
 clean:
 	rm -rf $(OBJDIR) $(BINDIR)
 
+reset:
+	@echo "Removing results..."
+	for dir in $(DIRS_TO_CLEAN); do \
+		echo "Super cleaning $$dir"; \
+		rm -rf $$dir/* $$dir/.[!.]* $$dir/..?*; \
+	done
+
 # Phony targets
-.PHONY: all clean
+.PHONY: all clean reset
