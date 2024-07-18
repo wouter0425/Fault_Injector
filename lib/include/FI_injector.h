@@ -18,8 +18,6 @@ string generateOutputString(const string& prefix);
 
 using namespace std;
 
-
-
 class FI_injector
 {
     private:
@@ -72,16 +70,12 @@ class FI_injector
         vector<pid_t> get_child_PIDs();
         int get_core_of_process(pid_t process);
         bool get_target_process();
-
-
-
         
         void add_result(long time);
         void write_results_to_file();        
 
         vector<FI_result*>& getResults() { return m_results; }
         void setResults(const vector<FI_result*>& results) { m_results = results; }
-
 
         bool get_random_PID(char* path);
         bool get_process_name();

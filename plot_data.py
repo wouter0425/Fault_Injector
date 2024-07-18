@@ -12,32 +12,27 @@ def get_most_recent_file(directory, extension=".txt"):
     return most_recent_file
 
 def plot_data(file_path, aggregation_factor=10):
-    # Read the data
-    data = pd.read_csv(file_path, sep='\t')
+    data = pd.read_csv(file_path, sep='\t')    
     
-    # Aggregate data by averaging over intervals
     data['time'] = data['time'].astype(int) // aggregation_factor * aggregation_factor
     data = data.groupby('time').mean().reset_index()
-    
-    # Plot each column (except the first one) in a separate subplot
-    x = data['time']  # First column as x-axis
-    num_plots = len(data.columns) - 1  # Number of columns to plot (excluding the first)
+        
+    x = data['time']
+    num_plots = len(data.columns) - 1
     
     fig, axes = plt.subplots(num_plots, 1, figsize=(8, 6 * num_plots), sharex=True)
     
-    # Iterate over each column (except the first one) and plot lines without markers
     for i, column in enumerate(data.columns[1:]):
-        ax = axes[i] if num_plots > 1 else axes  # Use a single axes if only one plot
-        ax.plot(x, data[column], marker='', linestyle='-', linewidth=1.5, label=column)  # No markers
+        ax = axes[i] if num_plots > 1 else axes
+        ax.plot(x, data[column], marker='', linestyle='-', linewidth=1.5, label=column)
         ax.set_ylabel('Y-axis label')
         ax.set_title(f'Plot for {column}')
         ax.grid(True)
-        ax.legend()
+        ax.legend()    
     
-    # Set the same x and y axis limits for all subplots
     for ax in axes:
-        ax.set_xlim(x.min(), x.max())  # Set same x-axis limits
-        ax.set_ylim(data.iloc[:, 1:].values.min(), data.iloc[:, 1:].values.max())  # Set same y-axis limits
+        ax.set_xlim(x.min(), x.max())
+        ax.set_ylim(data.iloc[:, 1:].values.min(), data.iloc[:, 1:].values.max())
     
     plt.xlabel('X-axis label')
     plt.tight_layout()
