@@ -63,6 +63,8 @@ void FI_injector::run_injection()
 
         while (burst_active(burst_start_time)) 
         {
+            // Pause all child processes
+
             if (get_target_process())
             {
                 inject_fault();
@@ -149,31 +151,39 @@ void FI_injector::inject_fault()
         return;
     }
 
-    // Detach from the process and allow it to continue
-    if (ptrace(PTRACE_DETACH, m_process, nullptr, nullptr) == -1) 
+    for (auto child : m_childPIDs)
     {
-        fprintf(stderr, "Failed to detach from process: %s\n", strerror(errno));
-        return;
+        ptrace(PTRACE_DETACH, child, nullptr, nullptr);
+        ptrace(PTRACE_CONT, child, nullptr, nullptr);
     }
 
-    // Allow the process to continue execution
-    if (ptrace(PTRACE_CONT, m_process, nullptr, nullptr) == -1)
-        return;
+    // // Detach from the process and allow it to continue
+    // if (ptrace(PTRACE_DETACH, m_process, nullptr, nullptr) == -1) 
+    // {
+    //     fprintf(stderr, "Failed to detach from process: %s\n", strerror(errno));
+    //     return;
+    // }
+
+    // // Allow the process to continue execution
+    // if (ptrace(PTRACE_CONT, m_process, nullptr, nullptr) == -1)
+    //     return;
 }
 
-vector<pid_t> FI_injector::get_child_PIDs()
+bool FI_injector::get_child_PIDs()
 {
+    m_childPIDs.clear();
+
     vector<pid_t> childPIDs;
     string path = "/proc/" + to_string(m_target) + "/task/" + to_string(m_target) + "/children";
     ifstream file(path);
     if (!file.is_open())
-        return childPIDs;
+        return false;
 
     pid_t childPID;
     while (file >> childPID)
-        childPIDs.push_back(childPID);
+        m_childPIDs.push_back(childPID);
 
-    return childPIDs; 
+    return true; 
 }
 
 int FI_injector::get_core_of_process(pid_t process)
@@ -193,10 +203,12 @@ int FI_injector::get_core_of_process(pid_t process)
 bool FI_injector::get_target_process()
 {
     int status;
-    vector<pid_t> childPIDs = get_child_PIDs();
+    if (!get_child_PIDs())
+        return false;
+    
     m_process = 0;
 
-    for (int childPID : childPIDs) 
+    for (int childPID : m_childPIDs) 
     {
         int childCore = get_core_of_process(childPID);
 

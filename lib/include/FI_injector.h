@@ -35,6 +35,7 @@ class FI_injector
         vector<target> m_targets;
         vector<int> m_targetResults;
         vector<FI_result*> m_results;
+        vector<pid_t> m_childPIDs;
         
         int m_cores[NUM_OF_CORES] = TARGET_CORES;
 
@@ -67,7 +68,7 @@ class FI_injector
         void get_random_core();
         void print_results();
 
-        vector<pid_t> get_child_PIDs();
+        bool get_child_PIDs();
         int get_core_of_process(pid_t process);
         bool get_target_process();
         
