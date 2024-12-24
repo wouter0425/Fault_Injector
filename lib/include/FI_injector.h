@@ -67,6 +67,7 @@ class FI_injector
         bool burst_active(const std::chrono::steady_clock::time_point& start_time);
         void get_random_core();
         void print_results();
+        void apply_random_frequency_deviation();
 
         bool get_child_PIDs();
         int get_core_of_process(pid_t process);

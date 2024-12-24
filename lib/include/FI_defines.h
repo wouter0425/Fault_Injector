@@ -6,7 +6,8 @@
 
 #define SECOND  1000000
 #define MILISECOND 1000
-#define BURST_TIME  100
+#define BURST_TIME  1000
+#define BASE_FREQ   1000
 
 #define TARGET_CORES    {0,1,2,3}
 #define NUM_OF_TARGETS  4

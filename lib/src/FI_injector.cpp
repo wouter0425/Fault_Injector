@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <iomanip>
 #include <sstream>
+#include <thread>
 
 #include <FI_injector.h>
 #include <FI_result.h>
@@ -63,8 +64,6 @@ void FI_injector::run_injection()
 
         while (burst_active(burst_start_time)) 
         {
-            // Pause all child processes
-
             if (get_target_process())
             {
                 inject_fault();
@@ -76,11 +75,15 @@ void FI_injector::run_injection()
                     add_result(time);
                     temp_time = time;
                 }
-
-                usleep(1000);
-            }            
+                usleep(10000);
+            }
+            
         }
-        usleep(m_burstFrequency);
+        //usleep(m_burstFrequency);
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(m_burstFrequency));
+        apply_random_frequency_deviation();
+        
     }
 }
 
@@ -413,8 +416,50 @@ bool FI_injector::burst_active(const std::chrono::steady_clock::time_point& star
 {
     auto current_time = std::chrono::steady_clock::now();
     auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
-    return elapsed_time < m_burstTime;
+
+    if (elapsed_time > m_burstTime)
+    {
+        // Change m_burstTime by a random ±10% based on the original BURST_TIME
+        const int deviation = BURST_TIME / 4; // 10% of BURST_TIME
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<int> dist(-deviation, deviation); // Range: [-10%, +10%]
+        
+        m_burstTime = BURST_TIME + dist(gen); // Apply the random deviation to BURST_TIME
+
+        return false;
+    }
+
+    return true;
 }
+
+// Function to apply ±10% random deviation to the frequency
+void FI_injector::apply_random_frequency_deviation()
+{
+    
+    const int deviation = BASE_FREQ / 2; // 10% of the base frequency
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(-deviation, deviation); // Range: [-10%, +10%]
+    m_burstFrequency = BASE_FREQ + dist(gen);
+    //return baseFrequency + dist(gen);
+}
+
+// bool FI_injector::burst_active(const std::chrono::steady_clock::time_point& start_time)
+// {
+//     auto current_time = std::chrono::steady_clock::now();
+//     auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
+
+//     if (elapsed_time > m_burstTime)
+//     {
+//         // change m_burstTime by a random 10%, assume the original burst time is stored in a define like:
+//         // #define BURST_TIME  1000
+
+//         return false;
+//     }
+    
+//     return true;
+// }
 
 void FI_injector::add_result(long time)
 {
