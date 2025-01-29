@@ -4,6 +4,7 @@
 #include <time.h>
 #include <vector>
 #include <string>
+#include <algorithm>
 
 using namespace std;
 
@@ -15,19 +16,33 @@ typedef struct {
 class FI_result {
 
     private:        
-        int m_target;
-        string m_targetName;
+        //int m_target;
+        //string m_targetName;
         long m_time;
-        vector<bool> m_targets;
 
-    public:
-        FI_result(int targetID, time_t time, vector<target> targetNames, string targetName);
+        vector<string> m_target_tasks;
+        vector<int> m_target_cores;
+
+    public:              
+        FI_result(time_t time);
         ~FI_result();
         
-        int get_target() const { return m_target; }
+        //int get_target() const { return m_target; }
         long get_time() const { return m_time; }
-        vector<bool> get_targets() { return m_targets; }
-        string get_target_name() const { return m_targetName; }
+        void setTime(long time) { m_time = time; }
+
+
+        void add_target_task(string t) { m_target_tasks.push_back(t); }
+        void add_target_core(int c) { m_target_cores.push_back(c); }
+
+        const vector<string>& getTargets() const { return m_target_tasks; }
+        const vector<int>& getTargetCores() const { return m_target_cores; }
+
+        // Function to check if a target name exists
+        bool targetNameExists(const string& targetName) const { return find(m_target_tasks.begin(), m_target_tasks.end(), targetName) != m_target_tasks.end(); }
+
+        // Function to check if a target core exists
+        bool targetCoreExists(int targetCore) const {return find(m_target_cores.begin(), m_target_cores.end(), targetCore) != m_target_cores.end(); }
 };
 
 #endif
