@@ -17,6 +17,8 @@ public:
     FI_logger(string resultDirectory);
     ~FI_logger();
 
+    void cleanup_logger();
+
     void add_result(FI_result* result) { m_results.push_back(result); }
 
     void output_tsv(FI_campaign* campaign);

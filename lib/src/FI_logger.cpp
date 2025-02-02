@@ -25,6 +25,14 @@ FI_logger::~FI_logger()
     m_results.clear();   
 }
 
+void FI_logger::cleanup_logger()
+{
+    for (FI_result* result : m_results)
+    {
+        delete result;
+    }
+}
+
 void FI_logger::output_tsv(FI_campaign* c)
 {
     string directoryName = generate_output_string(m_resultDirectory);
@@ -52,10 +60,10 @@ void FI_logger::output_tsv(FI_campaign* c)
     fprintf(injection_file, "time\t");
     fprintf(target_file, "time\t");
 
-    for (int i = 0; i < NUM_OF_CORES; i++)
+    for (size_t i = 0; i < c->get_cores().size(); i++)
     {
         fprintf(injection_file, "Core %d", c->get_cores()[i]);
-        if (i < NUM_OF_CORES - 1)
+        if (i < c->get_cores().size() - 1)
             fprintf(injection_file, "\t");
     }
 
@@ -73,18 +81,18 @@ void FI_logger::output_tsv(FI_campaign* c)
     fprintf(target_file, "\n");
 
     // Declare the arrays to store the results
-    int injection_sum[NUM_OF_CORES];
+    int injection_sum[c->get_cores().size()];
     int target_sum[c->get_targets().size()];
 
     // Initialize the array results
-    for (size_t i = 0; i < NUM_OF_CORES; i++) injection_sum[i] = 0;
+    for (size_t i = 0; i < c->get_cores().size(); i++) injection_sum[i] = 0;
     for (size_t i = 0; i < c->get_targets().size(); i++) target_sum[i] = 0; 
 
     // Process the results
     for (auto& result: m_results)
     {
 
-        for (size_t i = 0; i < NUM_OF_CORES; i++) 
+        for (size_t i = 0; i < c->get_cores().size(); i++) 
         {
             if (result->targetCoreExists(c->get_cores()[i]))
             {
@@ -105,10 +113,10 @@ void FI_logger::output_tsv(FI_campaign* c)
         fprintf(injection_file, "%ld\t", result->get_time());
         fprintf(target_file, "%ld\t", result->get_time());
 
-        for (size_t i = 0; i < NUM_OF_CORES; i++)
+        for (size_t i = 0; i < c->get_cores().size(); i++)
         {
             fprintf(injection_file, "%d", injection_sum[i]);
-            if (i < NUM_OF_CORES - 1)            
+            if (i < c->get_cores().size() - 1)            
                 fprintf(injection_file, "\t");
             
         }
@@ -152,16 +160,14 @@ void FI_logger::create_parameter_file(string &path, FI_campaign* c)
         return;
 
     fprintf(injection_file, "*** Parameter file *** \n");
-    //fprintf(injection_file, "");
     fprintf(injection_file, "\t target name:     %s \n", c->get_target_location().c_str());
     fprintf(injection_file, "\t startup delay:   %d ms \n", c->get_startup_delay());
     fprintf(injection_file, "\t burst duration:  %d ms \n", c->get_burst_time());
     fprintf(injection_file, "\t burst frequency: %d ms \n", c->get_burst_frequency());
     fprintf(injection_file, "\t injection delay: %d ms \n", c->get_injection_delay() / MILISECOND);
-    fprintf(injection_file, "\t number of cores: %d \n", NUM_OF_CORES);
-    fprintf(injection_file, "\t Golden run:      %d (0 is false) \n", GOLDEN_RUN);
+    fprintf(injection_file, "\t number of cores: %ld \n", c->get_cores().size());
     
-    fprintf(injection_file, "\t target cores:    %d \n", NUM_OF_TARGET_CORES);
+    fprintf(injection_file, "\t target cores:    %ld \n", c->get_target_cores().size());
     for (int core : c->get_cores())
     {
         fprintf(injection_file, "\t\t core %d \n", core);

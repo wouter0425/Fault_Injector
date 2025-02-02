@@ -29,26 +29,24 @@ void FI_injector::inject_faults(FI_logger* logger)
 
         // // Log the results
         result->add_target_task(job->getName());
-        result->add_target_core(job->getCore());
-
-        //printf("target: \t %s \n", job->getName().c_str());
+        result->add_target_core(job->getCore());        
 
         // Write the modified registers back to the process
         if (ptrace(PTRACE_SETREGS, job->getPid(), nullptr, &regs) == -1) 
-        {            
+        {
             ptrace(PTRACE_DETACH, job->getPid(), nullptr, nullptr);
             continue;
         }
+
+        delete job;
     }
 
-    //printf("---------------------------- \n\n");
-    
     logger->add_result(result);
 }
 
 void FI_injector::flip_bit(intel_registers reg, struct user_regs_struct &regs)
 {
-    if (GOLDEN_RUN)
+    if (m_goldenRun)
         return;
         
     // Generate a random bit position (0 to 63 for 64-bit registers)

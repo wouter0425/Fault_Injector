@@ -1,16 +1,10 @@
 #ifndef FI_DEFINES_H
 #define FI_DEFINES_H
 
-#define RANDOM_CORE false
-#define NUM_OF_CORES    4
-
+#define LOG_TIME                100
 #define SECOND                  1000000
 #define MILISECOND              1000
 #define BURST_TIME              1000
-
-#define TARGET_CORES            {0,1,2,3}
-#define NUM_OF_TARGET_CORES     3
-#define GOLDEN_RUN              0
 
 enum intel_registers {
     RAX,

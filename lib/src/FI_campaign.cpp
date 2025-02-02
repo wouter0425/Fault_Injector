@@ -30,13 +30,7 @@
 #include <FI_defines.h>
 #include <FI_logger.h>
 
-FI_campaign::FI_campaign()
-{
-    m_injector = new FI_injector();
-    m_logger = new FI_logger();
-}
-
-FI_campaign::FI_campaign(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay)
+FI_campaign::FI_campaign(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun)
 {
     m_targetLocation = targetLocation;
     m_outputDirectory = outputDirectory;
@@ -46,7 +40,7 @@ FI_campaign::FI_campaign(string targetLocation, string outputDirectory, int star
     m_burstFrequency = burstFrequency;
     m_baseBurstFrequency = burstFrequency;
     m_injectionDelay = injectionDelay * MILISECOND;
-    m_injector = new FI_injector();
+    m_injector = new FI_injector(goldenRun);
     m_logger = new FI_logger();
     m_logger->set_result_directory(outputDirectory);
 }
@@ -54,6 +48,23 @@ FI_campaign::FI_campaign(string targetLocation, string outputDirectory, int star
 FI_campaign::~FI_campaign()
 {
 
+}
+
+void FI_campaign::init_campaign(int injectorCore, int numOfTargets, vector<int>targetCores)
+{
+    // Switch cores        
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);    
+    CPU_SET(injectorCore, &cpuset);
+
+    if (sched_setaffinity(0, sizeof(cpuset), &cpuset) != 0) 
+    {
+        perror("sched_setaffinity");
+        exit(EXIT_FAILURE);
+    }
+
+    m_cores = targetCores;
+    m_target_cores.resize(numOfTargets);
 }
 
 void FI_campaign::run_injection()
@@ -92,6 +103,21 @@ void FI_campaign::run_injection()
     }
 
     m_logger->output_tsv(this);
+
+    cleanup_campaign();
+}
+
+void FI_campaign::cleanup_campaign()
+{
+    m_logger->cleanup_logger();
+    delete m_logger;
+
+    delete m_injector;
+
+    for (FI_target* target : m_targets)
+    {
+        delete target;
+    }
 }
 
 bool FI_campaign::stop_targets()
@@ -213,7 +239,7 @@ void FI_campaign::create_targets(const chrono::steady_clock::time_point& start_t
 {
     m_injector->clear_jobs();
 
-    for (int i = 0; i < NUM_OF_TARGET_CORES; i++)
+    for (size_t i = 0; i < m_target_cores.size(); i++)
     {
         // Find a task whose core matches the selected core        
         for (auto*& target : m_targets)    
@@ -222,11 +248,6 @@ void FI_campaign::create_targets(const chrono::steady_clock::time_point& start_t
             {
                 // // Add the target using FI_injector               
                 m_injector->add_job(FI_job::declare_job(target->get_name(), target->get_pid(), target->get_core(), get_random_register()));
-
-                // result->add_target(target->get_name());
-                // result->add_target_core(target->get_core());
-
-                //break; // Move to the next target selection
             }
         }
     }
@@ -319,14 +340,12 @@ void FI_campaign::flip_bit(intel_registers reg, struct user_regs_struct &regs)
 
 void FI_campaign::get_random_cores()
 {
-    vector<int> availableCores(m_cores, m_cores + NUM_OF_CORES);
+    vector<int> availableCores = m_cores;
     random_shuffle(availableCores.begin(), availableCores.end());
-
-    //printf("target cores \n");
-    for (int i = 0; i < NUM_OF_TARGET_CORES && i < NUM_OF_CORES; i++) 
+ 
+    for (size_t i = 0; i < m_target_cores.size() && i < m_cores.size(); i++) 
     {
         m_target_cores[i] = availableCores[i];
-        //printf("\t core: %d \n", m_target_cores[i]);
     }
 
 }
@@ -368,13 +387,4 @@ void FI_campaign::apply_random_frequency_deviation()
     std::uniform_int_distribution<int> dist(-deviation, deviation); // Range: [-10%, +10%]
     m_burstFrequency = m_baseBurstFrequency + dist(gen);
     //return baseFrequency + dist(gen);
-}
-
-void FI_campaign::cleanup_campaign()
-{
-    m_injector->clear_jobs();
-
-    m_targets.clear();
-
-    return;
 }

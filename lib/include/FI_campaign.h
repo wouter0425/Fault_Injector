@@ -31,11 +31,7 @@ class FI_campaign
 
         string m_outputDirectory {"results"};
         string m_targetLocation;
-        //string m_name;
-        //intel_registers m_register;        
-        pid_t m_target; // stores the parent target process
-        //string m_targetName;
-        //pid_t m_process;
+        pid_t m_target;
 
         int m_burstTime;
         int m_burstFrequency;
@@ -48,21 +44,19 @@ class FI_campaign
 
         long m_startTime;
         chrono::steady_clock::time_point m_logTime;
-        //vector<string> m_targets;
-        //vector<FI_result*> m_results;
         vector<FI_target*> m_targets;
-        
-        int m_cores[NUM_OF_CORES] = TARGET_CORES;
-        int m_target_cores[NUM_OF_TARGET_CORES];
 
-    public:
+        vector<int> m_cores;
+        vector<int> m_target_cores;
 
-        FI_campaign();
-        FI_campaign(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay);
+    public:        
+        FI_campaign(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun);
         ~FI_campaign();
 
         long get_start_time() { return m_startTime; }
+        void init_campaign(int injectorCore, int numOfTargets, vector<int>targetCores);
         void run_injection();
+        void cleanup_campaign();
 
         bool get_target_PIDs();
         bool stop_targets();
@@ -77,21 +71,14 @@ class FI_campaign
         void FI_pause() {this_thread::sleep_for(chrono::milliseconds(m_burstFrequency));}
         FI_logger* get_logger() { return  m_logger;} 
 
-        void set_burst_time(int burstTime) 
-        { 
-            m_burstTime = burstTime;
-            m_baseBurstTime = burstTime; 
-        }
+        void set_burst_time(int burstTime) { m_burstTime = burstTime; m_baseBurstTime = burstTime; }
 
         int get_burst_time() { return m_baseBurstTime; }
 
-        void set_burst_frequency(int burstFrequency)
-        { 
-            m_burstFrequency = burstFrequency;
-            m_baseBurstFrequency = burstFrequency; 
-        }
-
-        const int (&get_cores() const)[NUM_OF_CORES] { return m_cores; }
+        void set_burst_frequency(int burstFrequency) { m_burstFrequency = burstFrequency; m_baseBurstFrequency = burstFrequency; }
+        
+        vector<int> get_cores() const { return m_cores; }
+        vector<int> get_target_cores() const { return m_target_cores; }
         vector<FI_target*> get_targets() const { return m_targets; }
 
         int get_burst_frequency() { return m_baseBurstFrequency; }
@@ -102,32 +89,20 @@ class FI_campaign
         int get_injection_delay() { return m_injectionDelay; }
 
         void set_result_directory(string dir) { m_logger->set_result_directory(dir); }
-        //void create_parameter_file(string &path);
-        void cleanup_campaign();
 
         pid_t start_process();
-        //int time_process(int iterations);
         intel_registers get_random_register();
-        //void inject_fault();
         
         void flip_bit(intel_registers reg, struct user_regs_struct &regs);
-        //bool get_random_child_pid();
         bool active();
         bool burst_active(const chrono::steady_clock::time_point& start_time);
-        //void get_random_core();
         void get_random_cores();
         
         void apply_random_frequency_deviation();
 
         bool get_child_PIDs();
         int get_core_of_process(pid_t process);
-        bool get_target_process();
-        
-        //void add_result(FI_result* result) { m_results.push_back(result); };
-        //void write_results_to_file();        
-
-        //vector<FI_result*>& getResults() { return m_results; }
-        //void setResults(const vector<FI_result*>& results) { m_results = results; }
+        bool get_target_process();        
 
         bool get_random_PID(char* path);
         bool get_process_name();
