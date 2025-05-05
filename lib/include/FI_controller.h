@@ -1,5 +1,5 @@
-#ifndef FI_CAMPAIGN_H
-#define FI_CAMPAIGN_H
+#ifndef FI_CONTROLLER_H
+#define FI_CONTROLLER_H
 
 #include <sys/types.h>
 #include <vector>
@@ -23,7 +23,7 @@ int create_directory(string &path);
 
 using namespace std;
 
-class FI_campaign
+class FI_controller
 {
     private:
         FI_injector* m_injector;
@@ -50,13 +50,15 @@ class FI_campaign
         vector<int> m_target_cores;
 
     public:        
-        FI_campaign(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun);
-        ~FI_campaign();
+        FI_controller(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun);
+        ~FI_controller();
+
+        static FI_controller* declare_controller(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun);
 
         long get_start_time() { return m_startTime; }
-        void init_campaign(int injectorCore, int numOfTargets, vector<int>targetCores);
+        void init_controller(int injectorCore, int numOfTargets, vector<int>targetCores);
         void run_injection();
-        void cleanup_campaign();
+        void cleanup_controller();
 
         bool get_target_PIDs();
         bool stop_targets();

@@ -11,3 +11,4 @@ bin/
 FI_results/
 results/
 obj/
+.vscode/

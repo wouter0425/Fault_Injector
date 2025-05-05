@@ -1,6 +1,5 @@
 #include "FI_injector.h"
 
-
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sstream>

@@ -18,19 +18,17 @@
 #include <unistd.h>
 #include <iomanip>
 #include <sstream>
-
 #include <memory> 
 #include <sys/stat.h>
+#include <algorithm>
 
-#include <algorithm>    // for the all of function
-
-#include <FI_campaign.h>
+#include <FI_controller.h>
 #include <FI_result.h>
 #include <FI_target.h>
 #include <FI_defines.h>
 #include <FI_logger.h>
 
-FI_campaign::FI_campaign(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun)
+FI_controller::FI_controller(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun)
 {
     m_targetLocation = targetLocation;
     m_outputDirectory = outputDirectory;
@@ -45,12 +43,18 @@ FI_campaign::FI_campaign(string targetLocation, string outputDirectory, int star
     m_logger->set_result_directory(outputDirectory);
 }
 
-FI_campaign::~FI_campaign()
-{
-
+FI_controller::~FI_controller()
+{    
 }
 
-void FI_campaign::init_campaign(int injectorCore, int numOfTargets, vector<int>targetCores)
+FI_controller* FI_controller::declare_controller(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun)
+{
+    FI_controller* controller = new FI_controller(targetLocation, outputDirectory, startupDelay, burstTime, burstFrequency, injectionDelay, goldenRun);
+
+    return controller;
+}
+
+void FI_controller::init_controller(int injectorCore, int numOfTargets, vector<int>targetCores)
 {
     // Switch cores        
     cpu_set_t cpuset;
@@ -67,7 +71,7 @@ void FI_campaign::init_campaign(int injectorCore, int numOfTargets, vector<int>t
     m_target_cores.resize(numOfTargets);
 }
 
-void FI_campaign::run_injection()
+void FI_controller::run_injection()
 {   
     // Seed the random number generator
     std::srand(std::time(nullptr));
@@ -104,10 +108,10 @@ void FI_campaign::run_injection()
 
     m_logger->output_tsv(this);
 
-    cleanup_campaign();
+    cleanup_controller();
 }
 
-void FI_campaign::cleanup_campaign()
+void FI_controller::cleanup_controller()
 {
     m_logger->cleanup_logger();
     delete m_logger;
@@ -120,7 +124,7 @@ void FI_campaign::cleanup_campaign()
     }
 }
 
-bool FI_campaign::stop_targets()
+bool FI_controller::stop_targets()
 {
     if (!get_target_PIDs())
         return false;
@@ -168,7 +172,7 @@ bool FI_campaign::stop_targets()
     return true; // All children successfully stopped
 }
 
-bool FI_campaign::start_targets()
+bool FI_controller::start_targets()
 {
     kill(m_target, SIGCONT);
     ptrace(PTRACE_DETACH, m_target, nullptr, nullptr);
@@ -195,7 +199,7 @@ bool FI_campaign::start_targets()
     return true; // All children successfully resumed
 }
 
-pid_t FI_campaign::start_process()
+pid_t FI_controller::start_process()
 {
     pid_t pid = fork();
 
@@ -219,7 +223,7 @@ pid_t FI_campaign::start_process()
     }
 }
 
-bool FI_campaign::active() 
+bool FI_controller::active() 
 {    
     int status;
     int result = waitpid(m_target, &status, WNOHANG);
@@ -235,7 +239,7 @@ bool FI_campaign::active()
         return false;
 }
 
-void FI_campaign::create_targets(const chrono::steady_clock::time_point& start_time)
+void FI_controller::create_targets(const chrono::steady_clock::time_point& start_time)
 {
     m_injector->clear_jobs();
 
@@ -253,7 +257,7 @@ void FI_campaign::create_targets(const chrono::steady_clock::time_point& start_t
     }
 }
 
-bool FI_campaign::get_target_PIDs()
+bool FI_controller::get_target_PIDs()
 {
     bool result = false;
 
@@ -298,7 +302,7 @@ bool FI_campaign::get_target_PIDs()
     return result;
 }
 
-int FI_campaign::get_core_of_process(pid_t process)
+int FI_controller::get_core_of_process(pid_t process)
 {
     cpu_set_t cpuSet;
     CPU_ZERO(&cpuSet);
@@ -312,7 +316,7 @@ int FI_campaign::get_core_of_process(pid_t process)
     return -1;
 }
 
-void FI_campaign::flip_bit(intel_registers reg, struct user_regs_struct &regs)
+void FI_controller::flip_bit(intel_registers reg, struct user_regs_struct &regs)
 {
     switch (reg) {
         case RAX: regs.rax ^= 0x1; break;
@@ -338,26 +342,31 @@ void FI_campaign::flip_bit(intel_registers reg, struct user_regs_struct &regs)
     }
 }
 
-void FI_campaign::get_random_cores()
+void FI_controller::get_random_cores()
 {
-    vector<int> availableCores = m_cores;
-    random_shuffle(availableCores.begin(), availableCores.end());
- 
+    std::vector<int> availableCores = m_cores;
+
+    // Use a random number generator seeded with real entropy
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    // Proper modern shuffle
+    std::shuffle(availableCores.begin(), availableCores.end(), g);
+
     for (size_t i = 0; i < m_target_cores.size() && i < m_cores.size(); i++) 
     {
         m_target_cores[i] = availableCores[i];
     }
-
 }
 
-intel_registers FI_campaign::get_random_register()
+intel_registers FI_controller::get_random_register()
 {
     int randomValue = std::rand() % RANDOM;
 
     return static_cast<intel_registers>(randomValue);
 }
 
-bool FI_campaign::burst_active(const chrono::steady_clock::time_point& start_time)
+bool FI_controller::burst_active(const chrono::steady_clock::time_point& start_time)
 {
     auto current_time = chrono::steady_clock::now();
     auto elapsed_time = chrono::duration_cast<chrono::milliseconds>(current_time - start_time).count();        
@@ -379,7 +388,7 @@ bool FI_campaign::burst_active(const chrono::steady_clock::time_point& start_tim
 }
 
 // Function to apply ±10% random deviation to the frequency
-void FI_campaign::apply_random_frequency_deviation()
+void FI_controller::apply_random_frequency_deviation()
 {    
     const int deviation = m_baseBurstFrequency / 2; // 10% of the base frequency
     std::random_device rd;

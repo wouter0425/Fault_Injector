@@ -16,8 +16,6 @@ typedef struct {
 class FI_result {
 
     private:        
-        //int m_target;
-        //string m_targetName;
         long m_time;
 
         vector<string> m_target_tasks;
@@ -25,9 +23,8 @@ class FI_result {
 
     public:              
         FI_result(time_t time);
-        ~FI_result();        
+        ~FI_result();
         
-        //int get_target() const { return m_target; }
         long get_time() const { return m_time; }
         void setTime(long time) { m_time = time; }
 

@@ -1,5 +1,5 @@
 #include <FI_logger.h>
-#include <FI_campaign.h>
+#include <FI_controller.h>
 
 #include <FI_defines.h>
 
@@ -33,7 +33,7 @@ void FI_logger::cleanup_logger()
     }
 }
 
-void FI_logger::output_tsv(FI_campaign* c)
+void FI_logger::output_tsv(FI_controller* c)
 {
     string directoryName = generate_output_string(m_resultDirectory);
 
@@ -152,7 +152,7 @@ int FI_logger::create_directory(string &path) {
     return 0;
 }
 
-void FI_logger::create_parameter_file(string &path, FI_campaign* c)
+void FI_logger::create_parameter_file(string &path, FI_controller* c)
 {
     FILE *injection_file = fopen(path.c_str(), "w");
 
