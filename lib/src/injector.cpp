@@ -1,4 +1,4 @@
-#include "FI_injector.h"
+#include "injector.h"
 
 #include <sys/ptrace.h>
 #include <sys/user.h>
@@ -6,16 +6,16 @@
 #include <iostream>
 #include <cstdint>
 
-void FI_injector::add_job(FI_job* job)
+void Injector::add_job(Job* job)
 {
     m_jobs.push_back(job);
 }
 
-void FI_injector::inject_faults(FI_logger* logger)
+void Injector::inject_faults(Logger* logger)
 {
-    FI_result* result = new FI_result(current_time_in_ms() - m_startTime);
+    Result* result = new Result(current_time_in_ms() - m_startTime);
 
-    for (FI_job* job : m_jobs)
+    for (Job* job : m_jobs)
     {
         struct user_regs_struct regs;
         if (ptrace(PTRACE_GETREGS, job->getPid(), nullptr, &regs) == -1) 
@@ -26,11 +26,9 @@ void FI_injector::inject_faults(FI_logger* logger)
         
         flip_bit(job->getRegister(), regs);
 
-        // // Log the results
         result->add_target_task(job->getName());
         result->add_target_core(job->getCore());        
 
-        // Write the modified registers back to the process
         if (ptrace(PTRACE_SETREGS, job->getPid(), nullptr, &regs) == -1) 
         {
             ptrace(PTRACE_DETACH, job->getPid(), nullptr, nullptr);
@@ -43,18 +41,15 @@ void FI_injector::inject_faults(FI_logger* logger)
     logger->add_result(result);
 }
 
-void FI_injector::flip_bit(intel_registers reg, struct user_regs_struct &regs)
+void Injector::flip_bit(intel_registers reg, struct user_regs_struct &regs)
 {
     if (m_goldenRun)
         return;
-        
-    // Generate a random bit position (0 to 63 for 64-bit registers)
+
     int random_bit = std::rand() % 64;
 
-    // Create a mask with a single bit set at the random position
     uint64_t mask = static_cast<uint64_t>(1) << random_bit;
 
-    // Flip the random bit in the specified register
     switch (reg) {
         case RAX: regs.rax ^= mask; break;
         case RBX: regs.rbx ^= mask; break;

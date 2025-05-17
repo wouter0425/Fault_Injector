@@ -22,39 +22,39 @@
 #include <sys/stat.h>
 #include <algorithm>
 
-#include <FI_controller.h>
-#include <FI_result.h>
-#include <FI_target.h>
-#include <FI_defines.h>
-#include <FI_logger.h>
+#include <controller.h>
+#include <result.h>
+#include <target.h>
+#include <defines.h>
+#include <logger.h>
 
-FI_controller::FI_controller(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun)
+Controller::Controller(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstDelay, int injectionDelay, bool goldenRun)
 {
     m_targetLocation = targetLocation;
     m_outputDirectory = outputDirectory;
     m_startupDelay = startupDelay * MILISECOND;
     m_burstTime = burstTime;
     m_baseBurstTime = burstTime;
-    m_burstFrequency = burstFrequency;
-    m_baseBurstFrequency = burstFrequency;
+    m_burstDelay = burstDelay;
+    m_baseBurstDelay = burstDelay;
     m_injectionDelay = injectionDelay * MILISECOND;
-    m_injector = new FI_injector(goldenRun);
-    m_logger = new FI_logger();
+    m_injector = new Injector(goldenRun);
+    m_logger = new Logger();
     m_logger->set_result_directory(outputDirectory);
 }
 
-FI_controller::~FI_controller()
+Controller::~Controller()
 {    
 }
 
-FI_controller* FI_controller::declare_controller(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun)
+Controller* Controller::declare_controller(string targetLocation, string outputDirectory, int startupDelay, int burstTime, int burstFrequency, int injectionDelay, bool goldenRun)
 {
-    FI_controller* controller = new FI_controller(targetLocation, outputDirectory, startupDelay, burstTime, burstFrequency, injectionDelay, goldenRun);
+    Controller* controller = new Controller(targetLocation, outputDirectory, startupDelay, burstTime, burstFrequency, injectionDelay, goldenRun);
 
     return controller;
 }
 
-void FI_controller::init_controller(int injectorCore, int numOfTargets, vector<int>targetCores)
+void Controller::init_controller(int injectorCore, int numOfTargets, vector<int>targetCores)
 {
     // Switch cores        
     cpu_set_t cpuset;
@@ -71,15 +71,12 @@ void FI_controller::init_controller(int injectorCore, int numOfTargets, vector<i
     m_target_cores.resize(numOfTargets);
 }
 
-void FI_controller::run_injection()
-{   
-    // Seed the random number generator
+void Controller::run_injection()
+{
     std::srand(std::time(nullptr));
 
-    // Start the target process
     start_process();
-
-    // Give the target time to initialize
+    
     usleep(m_startupDelay);    
 
     while (active())
@@ -92,7 +89,7 @@ void FI_controller::run_injection()
         {
             if (!stop_targets()) continue;
 
-            create_targets(burst_start_time);
+            create_targets();
 
             m_injector->inject_faults(m_logger);            
 
@@ -101,7 +98,7 @@ void FI_controller::run_injection()
             usleep(m_injectionDelay);
         }
         
-        FI_pause();
+        pause();
 
         apply_random_frequency_deviation();
     }
@@ -111,27 +108,26 @@ void FI_controller::run_injection()
     cleanup_controller();
 }
 
-void FI_controller::cleanup_controller()
+void Controller::cleanup_controller()
 {
     m_logger->cleanup_logger();
     delete m_logger;
 
     delete m_injector;
 
-    for (FI_target* target : m_targets)
+    for (Target* target : m_targets)
     {
         delete target;
     }
 }
 
-bool FI_controller::stop_targets()
+bool Controller::stop_targets()
 {
     if (!get_target_PIDs())
         return false;
 
     int status;
 
-    // Pause the scheduler
     ptrace(PTRACE_ATTACH, m_target, nullptr, nullptr);
     waitpid(m_target, &status, 0);
 
@@ -143,19 +139,14 @@ bool FI_controller::stop_targets()
     
     for (auto*& target : m_targets)    
     {
-        // If pid is not set (0), skip the iteration
         if (!target->get_pid())
             continue;
-        
 
-        // Attach to the child process
         if (ptrace(PTRACE_ATTACH, target->get_pid(), nullptr, nullptr) == -1)
         {
             continue;
         }
 
-        
-        // Wait for the process to stop
         if (waitpid(target->get_pid(), &status, 0) == -1)
         {            
             ptrace(PTRACE_DETACH, target->get_pid(), nullptr, nullptr);
@@ -169,10 +160,10 @@ bool FI_controller::stop_targets()
         }
     }
 
-    return true; // All children successfully stopped
+    return true;
 }
 
-bool FI_controller::start_targets()
+bool Controller::start_targets()
 {
     kill(m_target, SIGCONT);
     ptrace(PTRACE_DETACH, m_target, nullptr, nullptr);
@@ -182,24 +173,21 @@ bool FI_controller::start_targets()
         if (!target->get_pid())
             continue;
 
-        // Send SIGCONT to ensure the process resumes execution
-        //if (ptrace(PTRACE_CONT, target->get_pid(), nullptr, nullptr) == -1)
         if (kill(target->get_pid(), SIGCONT) == -1)
         {
             continue;
         }
-
-        // Detach from the process
+        
         if (ptrace(PTRACE_DETACH, target->get_pid(), nullptr, nullptr) == -1)
         {
             continue;
         }
     }
 
-    return true; // All children successfully resumed
+    return true;
 }
 
-pid_t FI_controller::start_process()
+pid_t Controller::start_process()
 {
     pid_t pid = fork();
 
@@ -223,7 +211,7 @@ pid_t FI_controller::start_process()
     }
 }
 
-bool FI_controller::active() 
+bool Controller::active() 
 {    
     int status;
     int result = waitpid(m_target, &status, WNOHANG);
@@ -239,25 +227,23 @@ bool FI_controller::active()
         return false;
 }
 
-void FI_controller::create_targets(const chrono::steady_clock::time_point& start_time)
+void Controller::create_targets()
 {
     m_injector->clear_jobs();
 
     for (size_t i = 0; i < m_target_cores.size(); i++)
     {
-        // Find a task whose core matches the selected core        
         for (auto*& target : m_targets)    
         {
             if (target->get_core() == m_target_cores[i])
             {
-                // // Add the target using FI_injector               
-                m_injector->add_job(FI_job::declare_job(target->get_name(), target->get_pid(), target->get_core(), get_random_register()));
+                m_injector->add_job(Job::declare_job(target->get_name(), target->get_pid(), target->get_core(), get_random_register()));
             }
         }
     }
 }
 
-bool FI_controller::get_target_PIDs()
+bool Controller::get_target_PIDs()
 {
     bool result = false;
 
@@ -268,7 +254,6 @@ bool FI_controller::get_target_PIDs()
 
     string taskPath = "/proc/" + to_string(m_target) + "/task/";
 
-    //Now add children tasks
     string childrenPath = taskPath + to_string(m_target) + "/children";
     std::ifstream childrenFile(childrenPath);
     if (childrenFile.is_open())
@@ -281,7 +266,7 @@ bool FI_controller::get_target_PIDs()
             if (childCommFile.is_open())
             {
                 string childTaskName;
-                std::getline(childCommFile, childTaskName); // Read the child's task name
+                std::getline(childCommFile, childTaskName);
                 childCommFile.close();
 
                 for (auto*& target : m_targets)
@@ -302,7 +287,7 @@ bool FI_controller::get_target_PIDs()
     return result;
 }
 
-int FI_controller::get_core_of_process(pid_t process)
+int Controller::get_core_of_process(pid_t process)
 {
     cpu_set_t cpuSet;
     CPU_ZERO(&cpuSet);
@@ -316,7 +301,7 @@ int FI_controller::get_core_of_process(pid_t process)
     return -1;
 }
 
-void FI_controller::flip_bit(intel_registers reg, struct user_regs_struct &regs)
+void Controller::flip_bit(intel_registers reg, struct user_regs_struct &regs)
 {
     switch (reg) {
         case RAX: regs.rax ^= 0x1; break;
@@ -337,20 +322,17 @@ void FI_controller::flip_bit(intel_registers reg, struct user_regs_struct &regs)
         case R15: regs.r15 ^= 0x1; break;
         default:
             std::cerr << "Invalid register." << std::endl;
-            //ptrace(PTRACE_DETACH, m_process, nullptr, nullptr);
             return;
     }
 }
 
-void FI_controller::get_random_cores()
+void Controller::get_random_cores()
 {
     std::vector<int> availableCores = m_cores;
 
-    // Use a random number generator seeded with real entropy
     std::random_device rd;
     std::mt19937 g(rd());
 
-    // Proper modern shuffle
     std::shuffle(availableCores.begin(), availableCores.end(), g);
 
     for (size_t i = 0; i < m_target_cores.size() && i < m_cores.size(); i++) 
@@ -359,27 +341,26 @@ void FI_controller::get_random_cores()
     }
 }
 
-intel_registers FI_controller::get_random_register()
+intel_registers Controller::get_random_register()
 {
     int randomValue = std::rand() % RANDOM;
 
     return static_cast<intel_registers>(randomValue);
 }
 
-bool FI_controller::burst_active(const chrono::steady_clock::time_point& start_time)
+bool Controller::burst_active(const chrono::steady_clock::time_point& start_time)
 {
     auto current_time = chrono::steady_clock::now();
     auto elapsed_time = chrono::duration_cast<chrono::milliseconds>(current_time - start_time).count();        
 
     if (elapsed_time > m_burstTime)
     {
-        // Change m_burstTime by a random ±10% based on the original BURST_TIME
-        const int deviation = m_baseBurstTime / 4; // 10% of BURST_TIME
+        const int deviation = m_baseBurstTime / 10;
         random_device rd;
         mt19937 gen(rd());
-        uniform_int_distribution<int> dist(-deviation, deviation); // Range: [-10%, +10%]
+        uniform_int_distribution<int> dist(-deviation, deviation);
         
-        m_burstTime = m_baseBurstTime + dist(gen); // Apply the random deviation to BURST_TIME
+        m_burstTime = m_baseBurstTime + dist(gen);
 
         return false;
     }
@@ -387,13 +368,11 @@ bool FI_controller::burst_active(const chrono::steady_clock::time_point& start_t
     return true;
 }
 
-// Function to apply ±10% random deviation to the frequency
-void FI_controller::apply_random_frequency_deviation()
+void Controller::apply_random_frequency_deviation()
 {    
-    const int deviation = m_baseBurstFrequency / 2; // 10% of the base frequency
+    const int deviation = m_baseBurstDelay / 10;
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dist(-deviation, deviation); // Range: [-10%, +10%]
-    m_burstFrequency = m_baseBurstFrequency + dist(gen);
-    //return baseFrequency + dist(gen);
+    std::uniform_int_distribution<int> dist(-deviation, deviation);
+    m_burstDelay = m_baseBurstDelay + dist(gen);
 }

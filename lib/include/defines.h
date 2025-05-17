@@ -1,10 +1,9 @@
 #ifndef FI_DEFINES_H
 #define FI_DEFINES_H
 
-#define LOG_TIME                100
-#define SECOND                  1000000
 #define MILISECOND              1000
-#define BURST_TIME              1000
+//#define NMR
+//#define RAVNMR
 
 enum intel_registers {
     RAX,

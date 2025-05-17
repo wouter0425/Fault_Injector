@@ -1,8 +1,3 @@
-#include <FI_logger.h>
-#include <FI_controller.h>
-
-#include <FI_defines.h>
-
 #include <sys/stat.h>
 #include <cerrno>
 #include <sstream>
@@ -10,30 +5,34 @@
 #include <cstdlib>
 #include <iomanip>
 
-FI_logger::FI_logger()
+#include <logger.h>
+#include <controller.h>
+#include <defines.h>
+
+Logger::Logger()
 {
 
 }
 
-FI_logger::FI_logger(string resultDirectory)
+Logger::Logger(string resultDirectory)
 {
     m_resultDirectory = resultDirectory;
 }
 
-FI_logger::~FI_logger()
+Logger::~Logger()
 {
     m_results.clear();   
 }
 
-void FI_logger::cleanup_logger()
+void Logger::cleanup_logger()
 {
-    for (FI_result* result : m_results)
+    for (Result* result : m_results)
     {
         delete result;
     }
 }
 
-void FI_logger::output_tsv(FI_controller* c)
+void Logger::output_tsv(Controller* c)
 {
     string directoryName = generate_output_string(m_resultDirectory);
 
@@ -56,7 +55,6 @@ void FI_logger::output_tsv(FI_controller* c)
     string parameterFile = directoryName + "/parameters.txt";
     create_parameter_file(parameterFile, c);
 
-    // Create column names for injection_file
     fprintf(injection_file, "time\t");
     fprintf(target_file, "time\t");
 
@@ -69,7 +67,6 @@ void FI_logger::output_tsv(FI_controller* c)
 
     fprintf(injection_file, "\n");
 
-    // create column names for target_file
     for (size_t i = 0; i < c->get_targets().size(); i++)
     {
         fprintf(target_file, "%s", c->get_targets()[i]->get_name().c_str());
@@ -80,15 +77,12 @@ void FI_logger::output_tsv(FI_controller* c)
 
     fprintf(target_file, "\n");
 
-    // Declare the arrays to store the results
     int injection_sum[c->get_cores().size()];
     int target_sum[c->get_targets().size()];
 
-    // Initialize the array results
     for (size_t i = 0; i < c->get_cores().size(); i++) injection_sum[i] = 0;
     for (size_t i = 0; i < c->get_targets().size(); i++) target_sum[i] = 0; 
 
-    // Process the results
     for (auto& result: m_results)
     {
 
@@ -97,7 +91,6 @@ void FI_logger::output_tsv(FI_controller* c)
             if (result->targetCoreExists(c->get_cores()[i]))
             {
                 injection_sum[i]++;
-                //break;
             }
         }
 
@@ -106,7 +99,6 @@ void FI_logger::output_tsv(FI_controller* c)
             if (result->targetNameExists(c->get_targets()[i]->get_name()))
             {
                 target_sum[i]++;
-                //break;
             }         
         }
 
@@ -137,7 +129,8 @@ void FI_logger::output_tsv(FI_controller* c)
     fclose(target_file);
 }
 
-int FI_logger::create_directory(string &path) {
+int Logger::create_directory(string &path) 
+{
     mode_t mode = 0755;
     if (mkdir(path.c_str(), mode) == -1) {
         if (errno == EEXIST) {
@@ -152,7 +145,7 @@ int FI_logger::create_directory(string &path) {
     return 0;
 }
 
-void FI_logger::create_parameter_file(string &path, FI_controller* c)
+void Logger::create_parameter_file(string &path, Controller* c)
 {
     FILE *injection_file = fopen(path.c_str(), "w");
 
@@ -180,17 +173,15 @@ void FI_logger::create_parameter_file(string &path, FI_controller* c)
     }
 }
 
-string FI_logger::generate_output_string(const string& prefix) {
-    // Get the current time
+string Logger::generate_output_string(const string& prefix)
+{
     std::time_t now = std::time(nullptr);
     std::tm timeinfo = *std::localtime(&now);
 
-    // Format the date and time
     std::ostringstream oss;
     oss << std::put_time(&timeinfo, "%Y-%m-%d_%H-%M-%S");
     string suffix = oss.str();
 
-    // Construct the output string
     string output = prefix + "_" + suffix;
 
     return output;
